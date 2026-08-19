@@ -5,11 +5,15 @@ Layout (little-endian, 8-byte aligned):
   word 0 : bytes 0-3 magic "DSND", bytes 4-7 reserved (zero)
   word 1-5: per sample {u32 byte offset from file start, u32 length in samples}
             order: spinup, loop, spindown, step, bump
-  data   : 16-bit signed mono 16 kHz, each sample zero-padded to 8 bytes
+  data   : 16-bit signed mono 22050 Hz, each sample zero-padded to 8 bytes
 
 Usage:
   build_drive_sounds.py --synth -o drive_sounds.bin
+  build_drive_sounds.py --vice path/to/drive-sound.c -o drive_sounds.bin
   build_drive_sounds.py -o drive_sounds.bin spinup.wav loop.wav spindown.wav step.wav bump.wav
+
+--vice extracts the embedded 8-bit 22050 Hz sample arrays from VICE's
+src/drive/drive-sound.c (by Kajtar Zsolt, GPL v2+ like this project).
 """
 
 import argparse
@@ -18,7 +22,7 @@ import struct
 import sys
 import wave
 
-RATE = 16000
+RATE = 22050
 MAGIC = b"DSND"
 NAMES = ["spinup", "loop", "spindown", "step", "bump"]
 
@@ -44,6 +48,19 @@ def read_wav(path):
         a = mono[j]
         b = mono[j + 1] if j + 1 < len(mono) else a
         out.append(int(a + (b - a) * frac))
+    return out
+
+
+def vice(path):
+    """Extract the embedded sample arrays from VICE drive-sound.c."""
+    import re
+    src = open(path).read()
+    out = []
+    for name in ["spinup", "hum", "spindown", "stepping", "bump"]:
+        m = re.search(r"static const signed char %s\[\] = \{(.*?)\};" % name, src, re.S)
+        if not m:
+            sys.exit(f"{path}: array '{name}' not found")
+        out.append([int(x) * 256 for x in re.findall(r"-?\d+", m.group(1))])
     return out
 
 
@@ -73,11 +90,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-o", "--out", required=True)
     ap.add_argument("--synth", action="store_true", help="generate test tones instead of reading WAVs")
+    ap.add_argument("--vice", metavar="DRIVE_SOUND_C", help="extract samples from VICE drive-sound.c")
     ap.add_argument("wavs", nargs="*", help=f"5 WAV files: {' '.join(NAMES)}")
     args = ap.parse_args()
 
     if args.synth:
         samples = synth()
+    elif args.vice:
+        samples = vice(args.vice)
     else:
         if len(args.wavs) != 5:
             sys.exit(f"need 5 WAV files in order: {' '.join(NAMES)}")

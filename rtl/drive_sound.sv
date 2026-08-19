@@ -11,7 +11,7 @@
 //   1: head   - retriggerable one-shot, step or bump sample
 //
 // Single-beat DDR3 reads only (burstcnt=1), ~500 words/s per active voice.
-// One 512x16 BRAM holds both voice FIFOs (255 samples each, ~16ms).
+// One 512x16 BRAM holds both voice FIFOs (255 samples each, ~11ms).
 // No multipliers. Runs entirely on clk_sys.
 //
 // Known simplification: a voice flush (retrigger, motor state change) does
@@ -23,7 +23,7 @@
 //   word 1-5: per sample {byte 0-3: byte offset from file start,
 //                         byte 4-7: length in samples}
 //             order: 0 spinup, 1 loop, 2 spindown, 3 step, 4 bump
-//   data   : 16-bit signed mono, 16 kHz, each sample 8-byte aligned
+//   data   : 16-bit signed mono, 22050 Hz, each sample 8-byte aligned
 //
 //-------------------------------------------------------------------------------
 
@@ -155,7 +155,8 @@ reg   [2:0] oseq = 0;
 reg signed [15:0] s0, s1;
 reg signed [16:0] sum;
 
-wire [11:0] divmax = ntsc ? 12'd2044 : 12'd1969;
+// 22050 Hz: PAL 31527954/1430 = 22047, NTSC 32727264/1484 = 22053
+wire [11:0] divmax = ntsc ? 12'd1483 : 12'd1429;
 
 always @(posedge clk) begin
 

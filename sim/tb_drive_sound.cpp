@@ -27,7 +27,7 @@ static uint64_t cyc = 0;
 
 static const uint32_t SND_BASE = 0x06080000; // 64-bit word address
 static const int CLK_HZ = 31527954;          // PAL clk_sys
-static const int TICK = 1970;                // cycles per 16 kHz sample
+static const int TICK = 1430;          // cycles per 22050 Hz sample
 
 static std::vector<uint64_t> ddr(1 << 20, 0); // sparse enough: 8MB region
 static std::mt19937 rng(1541);
@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
 
     auto seg_report = [&](const char* name) {
         double rms = seg_n ? sqrt((double)sumsq_seg / seg_n) : 0;
-        printf("%-28s rms %7.0f  (%.2fs)\n", name, rms, (double)seg_n / 16000.0);
+        printf("%-28s rms %7.0f  (%.2fs)\n", name, rms, (double)seg_n / 22050.0);
         sumsq_seg = 0; seg_n = 0;
     };
 
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
 
     // ---- WAV out
     FILE* w = fopen("drive_sound_tb.wav", "wb");
-    uint32_t dlen = (uint32_t)(wav.size() * 2), rate = 16000;
+    uint32_t dlen = (uint32_t)(wav.size() * 2), rate = 22050;
     uint32_t riff = 36 + dlen; uint16_t one = 1, ch = 1, bits = 16, ba = 2;
     uint32_t brate = rate * 2;
     fwrite("RIFF", 4, 1, w); fwrite(&riff, 4, 1, w); fwrite("WAVEfmt ", 8, 1, w);
