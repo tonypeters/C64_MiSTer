@@ -36,12 +36,54 @@ wire [63:0] drv_ddram_din;
 wire [7:0]  drv_ddram_be;
 
 assign DDRAM_CLK      = clk_sys;
+`ifndef DRIVE_SOUNDS
 assign DDRAM_BURSTCNT = drv_ddram_burstcnt;
 assign DDRAM_ADDR     = drv_ddram_addr;
 assign DDRAM_RD       = drv_ddram_rd;
 assign DDRAM_WE       = drv_ddram_we;
 assign DDRAM_DIN      = drv_ddram_din;
 assign DDRAM_BE       = drv_ddram_be;
+wire        drv_ddram_busy  = DDRAM_BUSY;
+wire        drv_ddram_ready = DDRAM_DOUT_READY;
+`else
+// drives keep priority on DDR3; the sound engine fills the gaps
+wire        drv_ddram_busy, drv_ddram_ready;
+wire        snd_ddram_busy, snd_ddram_ready;
+wire [28:0] snd_ddram_addr;
+wire        snd_ddram_rd, snd_ddram_we;
+wire [63:0] snd_ddram_din;
+
+drive_sound_arb drive_sound_arb
+(
+	.clk(clk_sys),
+	.reset(~reset_n),
+
+	.DDRAM_BUSY(DDRAM_BUSY),
+	.DDRAM_BURSTCNT(DDRAM_BURSTCNT),
+	.DDRAM_ADDR(DDRAM_ADDR),
+	.DDRAM_DOUT_READY(DDRAM_DOUT_READY),
+	.DDRAM_RD(DDRAM_RD),
+	.DDRAM_WE(DDRAM_WE),
+	.DDRAM_DIN(DDRAM_DIN),
+	.DDRAM_BE(DDRAM_BE),
+
+	.drv_busy(drv_ddram_busy),
+	.drv_burstcnt(drv_ddram_burstcnt),
+	.drv_addr(drv_ddram_addr),
+	.drv_ready(drv_ddram_ready),
+	.drv_rd(drv_ddram_rd),
+	.drv_we(drv_ddram_we),
+	.drv_din(drv_ddram_din),
+	.drv_be(drv_ddram_be),
+
+	.snd_busy(snd_ddram_busy),
+	.snd_addr(snd_ddram_addr),
+	.snd_ready(snd_ddram_ready),
+	.snd_rd(snd_ddram_rd),
+	.snd_we(snd_ddram_we),
+	.snd_din(snd_ddram_din)
+);
+`endif
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
 assign LED_DISK   = 0;
@@ -111,6 +153,11 @@ localparam CONF_STR = {
 	"P1O[12],Sound Expander,Disabled,OPL2;",
 	"P1O[41:40],DigiMax,Disabled,DE00,DF00;",
 	"P1O[19:18],Stereo Mix,None,25%,50%,100%;",
+`ifdef DRIVE_SOUNDS
+	"P1-;",
+	"P1O[98:97],Drive Sounds,Off,Quiet,Normal,Loud;",
+	"P1FC2,SND,Drive Sound Samples;",
+`endif
 
 	"P2,Hardware;", 
 	"P2O[52],GeoRAM,Disabled,4MB;",
@@ -408,7 +455,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2), .BLKSZ(1)) hps_io
 	.ioctl_upload(ioctl_upload),
 	.ioctl_din(ioctl_din),
 	.ioctl_rd(ioctl_rd),
-	.ioctl_wait(ioctl_req_wr|ioctl_req_rd|reset_wait|tape_ioctl_wait)
+	.ioctl_wait(ioctl_req_wr|ioctl_req_rd|reset_wait|tape_ioctl_wait|snd_ioctl_wait)
 );
 
 wire load_prg   = ioctl_index == 'h01;
@@ -1117,6 +1164,12 @@ iec_drive iec_drive
 	.out_we(drive_we),
 	.disk_ready(disk_ready),
 
+`ifdef DRIVE_SOUNDS
+	.snd_step(drv_snd_step),
+	.snd_bump(drv_snd_bump),
+	.snd_motor(drv_snd_motor),
+`endif
+
 	.par_data_i(drive_par_i),
 	.par_stb_i(drive_stb_i),
 	.par_data_o(drive_par_o),
@@ -1139,16 +1192,55 @@ iec_drive iec_drive
 	.rom_wr(((load_rom && ioctl_addr[16:14]) || load_c1581) && ioctl_download && ioctl_wr),
 	.rom_std(status[14]),
 
-	.DDRAM_BUSY(DDRAM_BUSY),
+	.DDRAM_BUSY(drv_ddram_busy),
 	.DDRAM_BURSTCNT(drv_ddram_burstcnt),
 	.DDRAM_ADDR(drv_ddram_addr),
 	.DDRAM_DOUT(DDRAM_DOUT),
-	.DDRAM_DOUT_READY(DDRAM_DOUT_READY),
+	.DDRAM_DOUT_READY(drv_ddram_ready),
 	.DDRAM_RD(drv_ddram_rd),
 	.DDRAM_WE(drv_ddram_we),
 	.DDRAM_DIN(drv_ddram_din),
 	.DDRAM_BE(drv_ddram_be)
 	);
+
+`ifdef DRIVE_SOUNDS
+wire [1:0] drv_snd_step, drv_snd_bump, drv_snd_motor;
+wire [15:0] drv_snd_out;
+wire load_snd = ioctl_index == 2;
+wire snd_ioctl_wait;
+
+drive_sound drive_sound
+(
+	.clk(clk_sys),
+	.reset(~reset_n),
+	.ntsc(ntsc),
+
+	.step(drv_snd_step),
+	.bump(drv_snd_bump),
+	.motor(drv_snd_motor),
+	.volume(status[98:97]),
+
+	.load(ioctl_download & load_snd),
+	.load_wr(ioctl_wr & load_snd),
+	.load_addr(ioctl_addr),
+	.load_data(ioctl_data),
+	.load_wait(snd_ioctl_wait),
+
+	.ddr_busy(snd_ddram_busy),
+	.ddr_addr(snd_ddram_addr),
+	.ddr_burstcnt(),
+	.ddr_rd(snd_ddram_rd),
+	.ddr_we(snd_ddram_we),
+	.ddr_din(snd_ddram_din),
+	.ddr_dout(DDRAM_DOUT),
+	.ddr_ready(snd_ddram_ready),
+
+	.audio_out(drv_snd_out)
+);
+`else
+wire [15:0] drv_snd_out = 0;
+wire        snd_ioctl_wait = 0;
+`endif
 
 reg drive_ce;
 always @(posedge clk_sys) begin
@@ -1584,8 +1676,8 @@ always @(posedge clk_sys) begin
 	cin  <= opl_out - {{3{opl_out[15]}},opl_out[15:3]};
 	cout <= compr(cin);
 
-	alm <= {cout[15],cout} + {audio_l[17],audio_l[17:2]} + {2'b0,dac_l,6'd0} + {cass_snd, 9'd0};
-	arm <= {cout[15],cout} + {audio_r[17],audio_r[17:2]} + {2'b0,dac_r,6'd0} + {cass_snd, 9'd0};
+	alm <= {cout[15],cout} + {audio_l[17],audio_l[17:2]} + {2'b0,dac_l,6'd0} + {cass_snd, 9'd0} + {drv_snd_out[15],drv_snd_out};
+	arm <= {cout[15],cout} + {audio_r[17],audio_r[17:2]} + {2'b0,dac_r,6'd0} + {cass_snd, 9'd0} + {drv_snd_out[15],drv_snd_out};
 	alo <= ^alm[16:15] ? {alm[16], {15{alm[15]}}} : alm[15:0];
 	aro <= ^arm[16:15] ? {arm[16], {15{arm[15]}}} : arm[15:0];
 end

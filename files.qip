@@ -24,4 +24,5 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/tap_scanner.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tap_time_map.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_counter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_subsystem.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/drive_sound.sv
 set_global_assignment -name SYSTEMVERILOG_FILE c64.sv
