@@ -30,6 +30,13 @@ module iec_drive #(parameter PARPORT=1,DUALROM=1,DRIVES=2)
 	output wire [N:0] out_we,
 	output        disk_ready,
 
+`ifdef DRIVE_SOUNDS
+	// 1541 sound taps, already masked for disabled/reset drives; 1581 has none
+	output  [N:0] snd_step,
+	output  [N:0] snd_bump,
+	output  [N:0] snd_motor,
+`endif
+
 	input         iec_atn_i,
 	input         iec_data_i,
 	input         iec_clk_i,
@@ -127,6 +134,12 @@ c1541_multi #(.PARPORT(PARPORT), .DUALROM(DUALROM), .DRIVES(DRIVES)) c1541
 	.out_track(c1541_out_track),
 	.out_we(c1541_out_we),
 	.disk_ready(disk_ready),
+
+`ifdef DRIVE_SOUNDS
+	.snd_step(snd_step),
+	.snd_bump(snd_bump),
+	.snd_motor(snd_motor),
+`endif
 
 	.par_data_i(par_data_i),
 	.par_stb_i(par_stb_i),

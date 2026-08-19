@@ -31,6 +31,12 @@ module c1541_multi #(parameter PARPORT=1,DUALROM=1,DRIVES=2)
 	output wire [N:0] out_we,
 	output        disk_ready,
 
+`ifdef DRIVE_SOUNDS
+	output  [N:0] snd_step,
+	output  [N:0] snd_bump,
+	output  [N:0] snd_motor,
+`endif
+
 	input         iec_atn_i,
 	input         iec_data_i,
 	input         iec_clk_i,
@@ -196,6 +202,14 @@ end
 wire [N:0] led_drv;
 assign     led = led_drv & ~reset_drv;
 
+`ifdef DRIVE_SOUNDS
+// a drive held in reset reads mtr=1 from the tristated VIA port: mask like the LED
+wire [N:0] snd_step_drv, snd_bump_drv, snd_motor_drv;
+assign     snd_step  = snd_step_drv  & ~reset_drv;
+assign     snd_bump  = snd_bump_drv  & ~reset_drv;
+assign     snd_motor = snd_motor_drv & ~reset_drv;
+`endif
+
 wire [N:0] i_disk_ready;
 assign     disk_ready = &(i_disk_ready | reset_drv);
 
@@ -224,6 +238,12 @@ generate
 			.out_track(out_track[i]),
 			.out_we(out_we[i]),
 			.disk_ready(i_disk_ready[i]),
+
+`ifdef DRIVE_SOUNDS
+			.snd_step(snd_step_drv[i]),
+			.snd_bump(snd_bump_drv[i]),
+			.snd_motor(snd_motor_drv[i]),
+`endif
 
 			.iec_atn_i(iec_atn),
 			.iec_data_i(iec_data & iec_data_o),

@@ -42,6 +42,13 @@ module c1541_drv
 	output wire [6:0] out_track,
 	output wire    out_we,
 
+`ifdef DRIVE_SOUNDS
+	// sound taps: outputs only, no influence on drive behavior
+	output reg    snd_step,
+	output reg    snd_bump,
+	output        snd_motor,
+`endif
+
 	input         iec_atn_i,
 	input         iec_data_i,
 	input         iec_clk_i,
@@ -85,6 +92,10 @@ module c1541_drv
 assign led       = act;
 assign out_track = track;
 assign out_we    = track_modified | busy_flushing_s;
+
+`ifdef DRIVE_SOUNDS
+assign snd_motor = mtr;
+`endif
 
 typedef enum bit [1:0] {
 	IDLE           = 2'd0,
@@ -326,6 +337,11 @@ always @(posedge clk) begin
 	stp_old <= stp;
 	move <= stp - stp_old;
 
+`ifdef DRIVE_SOUNDS
+	snd_step <= 0;
+	snd_bump <= 0;
+`endif
+
 	if (we && disk_present) track_modified <= 1;
 	if (img_mounted)        track_modified <= 0;
 
@@ -336,6 +352,11 @@ always @(posedge clk) begin
 		if (mtr & move[0]) begin
 			if (~move[1] && track_num < 84) track_num <= track_num + 1'b1;
 			if ( move[1] && track_num > 0 ) track_num <= track_num - 1'b1;
+`ifdef DRIVE_SOUNDS
+			snd_step <= 1;
+			// head pushed against the track-0 stop: the register clamps silently
+			if (move[1] && !track_num) snd_bump <= 1;
+`endif
 			// must save modified track on track change
 			if (track_modified) save_track <= ~save_track;
 			track_modified <= 0;
