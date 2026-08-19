@@ -156,6 +156,31 @@ int main(int argc, char** argv) {
         printf("  sample %d: word off %u, %u samples\n", i,
                (unsigned)r.drive_sound__DOT__tbl_off[i], (unsigned)r.drive_sound__DOT__tbl_len[i]);
 
+    // ---- optional drive-music mode: Daisy Bell as a step-rate timeline
+    // (a reconstruction of the melody, not the executed CSDb program;
+    //  pitch = step retrigger rate, like the real 1541 drive music)
+    if (argc > 2 && !strcmp(argv[2], "daisy")) {
+        struct Note { double hz; double beats; };
+        // Daisy Bell chorus, first two phrases (3/4, ~100 BPM)
+        static const Note tune[] = {
+            {587.3,3},{493.9,3},{392.0,3},{293.7,3},
+            {329.6,1},{370.0,1},{392.0,1},{329.6,2},{392.0,1},{293.7,5},{0,1},
+            {440.0,3},{587.3,3},{493.9,3},{392.0,3},
+            {329.6,1},{370.0,1},{392.0,1},{440.0,2},{493.9,1},{440.0,5},{0,1},
+        };
+        const double beat_s = 60.0 / 100.0;
+        dut->motor = 1; run_ms(800);   // spin up first, like the real program
+        for (auto& n : tune) {
+            double dur = n.beats * beat_s;
+            if (n.hz < 1) { run_ms(dur * 1000.0); continue; }
+            long nsteps = (long)(dur * n.hz);
+            for (long i = 0; i < nsteps; i++) { do_step(); run_us(1e6 / n.hz - 1); }
+        }
+        dut->motor = 0; run_ms(1500);
+        printf("ticks %ld, underruns motor=%ld head=%ld\n", ticks, underrun0, underrun1);
+        goto wav_out;
+    }
+
     // ---- scenario
     seg_report("silence (pre)");
 
@@ -171,6 +196,7 @@ int main(int argc, char** argv) {
 
     // ---- checks
     printf("ticks %ld, underruns motor=%ld head=%ld\n", ticks, underrun0, underrun1);
+wav_out:;
     long nz = 0; for (int16_t s : wav) if (s) nz++;
     printf("nonzero samples: %ld / %zu\n", nz, wav.size());
 
