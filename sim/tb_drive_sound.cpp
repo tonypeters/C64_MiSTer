@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
 
     // ---- stats
     long underrun0 = 0, underrun1 = 0, ticks = 0;
-    long head_grace_until = 0;
+    long head_grace_until = 0, motor_grace_until = 0;
     std::vector<int16_t> wav;
     long long sumsq_seg = 0; long seg_n = 0;
 
@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
             uint8_t fill0 = (uint8_t)(r.drive_sound__DOT__wr_ptr[0] - r.drive_sound__DOT__rd_ptr[0]);
             uint8_t fill1 = (uint8_t)(r.drive_sound__DOT__wr_ptr[1] - r.drive_sound__DOT__rd_ptr[1]);
             bool hd_act = r.drive_sound__DOT__rem_f[1] || fill1;
-            if (mot_act && !fill0 && r.drive_sound__DOT__rem_f[0]) underrun0++;
+            if (mot_act && !fill0 && r.drive_sound__DOT__rem_f[0] && ticks >= motor_grace_until) underrun0++;
             // 2-tick grace after a (re)trigger: first-fill latency is not starvation
             if (hd_act && !fill1 && r.drive_sound__DOT__rem_f[1] && ticks >= head_grace_until) underrun1++;
         }
@@ -130,13 +130,16 @@ int main(int argc, char** argv) {
 
     // ---- reset
     dut->reset = 1; dut->ntsc = 0; dut->volume = 3;
-    dut->step = 0; dut->bump = 0; dut->motor = 0;
+    dut->step = 0; dut->bump = 0; dut->motor = 0; motor_grace_until = ticks + 2;
     dut->load = 0; dut->load_wr = 0;
     for (int i = 0; i < 10; i++) cycle();
     dut->reset = 0;
     for (int i = 0; i < 10; i++) cycle();
 
-    // ---- ioctl upload
+    // ---- ioctl upload, deliberately DURING core reset: Main auto-loads the
+    // remembered file at core start while the reset counter still runs
+    dut->reset = 1;
+    for (int i = 0; i < 10; i++) cycle();
     dut->load = 1;
     for (size_t a = 0; a < bin.size(); a++) {
         long guard = 100000;
@@ -150,7 +153,9 @@ int main(int argc, char** argv) {
     while (dut->load_wait) cycle();
     dut->load = 0;
     for (int i = 0; i < 100; i++) cycle();
-    if (!r.drive_sound__DOT__table_valid) { fprintf(stderr, "FAIL: table_valid not set after load\n"); return 1; }
+    dut->reset = 0;
+    for (int i = 0; i < 100; i++) cycle();
+    if (!r.drive_sound__DOT__table_valid) { fprintf(stderr, "FAIL: table_valid not set after load-during-reset\n"); return 1; }
     printf("table_valid ok\n");
     for (int i = 0; i < 5; i++)
         printf("  sample %d: word off %u, %u samples\n", i,
@@ -169,14 +174,14 @@ int main(int argc, char** argv) {
             {329.6,1},{370.0,1},{392.0,1},{440.0,2},{493.9,1},{440.0,5},{0,1},
         };
         const double beat_s = 60.0 / 100.0;
-        dut->motor = 1; run_ms(800);   // spin up first, like the real program
+        dut->motor = 1; motor_grace_until = ticks + 2; run_ms(800);   // spin up first, like the real program
         for (auto& n : tune) {
             double dur = n.beats * beat_s;
             if (n.hz < 1) { run_ms(dur * 1000.0); continue; }
             long nsteps = (long)(dur * n.hz);
             for (long i = 0; i < nsteps; i++) { do_step(); run_us(1e6 / n.hz - 1); }
         }
-        dut->motor = 0; run_ms(1500);
+        dut->motor = 0; motor_grace_until = ticks + 2; run_ms(1500);
         printf("ticks %ld, underruns motor=%ld head=%ld\n", ticks, underrun0, underrun1);
         goto wav_out;
     }
@@ -184,25 +189,25 @@ int main(int argc, char** argv) {
     // ---- scenario
     seg_report("silence (pre)");
 
-    dut->motor = 1; run_ms(1200);            seg_report("motor: spinup + loop");
+    dut->motor = 1; motor_grace_until = ticks + 2; run_ms(1200);            seg_report("motor: spinup + loop");
     for (int i = 0; i < 5;   i++) { do_step(); run_ms(200); }  seg_report("steps @5Hz");
     for (int i = 0; i < 20;  i++) { do_step(); run_ms(50);  }  seg_report("steps @20Hz");
     for (int i = 0; i < 50;  i++) { do_step(); run_ms(10);  }  seg_report("steps @100Hz");
     for (int i = 0; i < 150; i++) { do_step(); run_us(3333); } seg_report("steps @300Hz (SingSong)");
     for (int i = 0; i < 5;   i++) { do_step(true); run_ms(100); } seg_report("bumps @10Hz");
-    dut->motor = 0; run_ms(400);             seg_report("spindown (partial)");
-    dut->motor = 1; run_ms(500);             seg_report("re-spin during spindown");
-    dut->motor = 0; run_ms(1200);            seg_report("spindown + silence");
+    dut->motor = 0; motor_grace_until = ticks + 2; run_ms(400);             seg_report("spindown (partial)");
+    dut->motor = 1; motor_grace_until = ticks + 2; run_ms(500);             seg_report("re-spin during spindown");
+    dut->motor = 0; motor_grace_until = ticks + 2; run_ms(1200);            seg_report("spindown + silence");
 
     // core reset must not kill the feature (OSD Reset regression)
     dut->reset = 1; for (int i = 0; i < 100; i++) cycle();
     dut->reset = 0; for (int i = 0; i < 100; i++) cycle();
     if (!r.drive_sound__DOT__table_valid) { fprintf(stderr, "FAIL: table_valid lost on core reset\n"); return 1; }
-    dut->motor = 1; run_ms(400);
+    dut->motor = 1; motor_grace_until = ticks + 2; run_ms(400);
     { long nz2 = 0; for (size_t i = wav.size() - 6000; i < wav.size(); i++) if (wav[i]) nz2++;
       printf("post-reset motor: %ld nonzero of 6000\n", nz2);
       if (nz2 < 1000) { fprintf(stderr, "FAIL: no audio after core reset\n"); return 1; } }
-    dut->motor = 0; run_ms(600);             seg_report("post-reset respin");
+    dut->motor = 0; motor_grace_until = ticks + 2; run_ms(600);             seg_report("post-reset respin");
 
     // ---- checks
     printf("ticks %ld, underruns motor=%ld head=%ld\n", ticks, underrun0, underrun1);

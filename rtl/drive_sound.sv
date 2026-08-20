@@ -77,6 +77,9 @@ assign load_wait = wr_pending;
 assign ddr_din   = wbuf;
 assign ddr_addr  = ddr_we ? wr_addr : f_addr;
 
+// The whole upload path ignores core reset: Main auto-loads the remembered
+// file at core start while the core reset counter still runs, and the
+// samples stay valid across every later reset (nothing re-uploads them).
 always @(posedge clk) begin
 	reg load_d;
 	load_d <= load;
@@ -89,9 +92,12 @@ always @(posedge clk) begin
 		end
 	end
 
-	// snoop the header while it streams by
+	if(wr_pending) ddr_we <= 1;
+
+	// write accepted: snoop the header while it streams by
 	if(wr_pending & ddr_we & ~ddr_busy) begin
 		wr_pending <= 0;
+		ddr_we     <= 0;
 		case(wr_addr - SND_BASE)
 			0:         magic_ok <= (wbuf[31:0] == MAGIC);
 			1,2,3,4,5: begin
@@ -104,10 +110,9 @@ always @(posedge clk) begin
 
 	if(load & ~load_d)  table_valid <= 0;
 	if(~load & load_d)  table_valid <= magic_ok;
-	// core reset must NOT clear table_valid: the samples stay in DDR3 and
-	// nothing re-uploads them until the next core start
-	if(reset) wr_pending <= 0;
 end
+
+initial {wr_pending, ddr_we} = 0;
 
 // ------------------------------------------------------------- voice state
 
@@ -197,17 +202,12 @@ always @(posedge clk) begin
 	endcase
 	if(~snd_on) audio_out <= 0;
 
-	// ---- fetch FSM: sample upload writes, then voice refills, single beats
+	// ---- fetch FSM: voice refills, single beats (writes live in the loader)
 	ddr_rd <= 0;
-	ddr_we <= 0;
 
 	case(fstate)
 		F_IDLE: begin
-			if(wr_pending) begin
-				ddr_we <= 1;
-				if(ddr_we & ~ddr_busy) ddr_we <= 0;
-			end
-			else if(snd_on) begin
+			if(snd_on && !wr_pending) begin
 				if(mot_act && |rem_f[0] && (8'd255 - fill0) >= 8'd4) begin
 					fv <= 0;
 					f_addr <= SND_BASE + tbl_off[sel[0]] + fptr[0][20:2];
@@ -321,7 +321,7 @@ always @(posedge clk) begin
 	if(reset) begin
 		fstate <= F_IDLE;
 		oseq   <= 0;
-		{ddr_rd, ddr_we} <= 0;
+		ddr_rd <= 0;
 	end
 end
 
