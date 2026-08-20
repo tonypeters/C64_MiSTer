@@ -194,6 +194,16 @@ int main(int argc, char** argv) {
     dut->motor = 1; run_ms(500);             seg_report("re-spin during spindown");
     dut->motor = 0; run_ms(1200);            seg_report("spindown + silence");
 
+    // core reset must not kill the feature (OSD Reset regression)
+    dut->reset = 1; for (int i = 0; i < 100; i++) cycle();
+    dut->reset = 0; for (int i = 0; i < 100; i++) cycle();
+    if (!r.drive_sound__DOT__table_valid) { fprintf(stderr, "FAIL: table_valid lost on core reset\n"); return 1; }
+    dut->motor = 1; run_ms(400);
+    { long nz2 = 0; for (size_t i = wav.size() - 6000; i < wav.size(); i++) if (wav[i]) nz2++;
+      printf("post-reset motor: %ld nonzero of 6000\n", nz2);
+      if (nz2 < 1000) { fprintf(stderr, "FAIL: no audio after core reset\n"); return 1; } }
+    dut->motor = 0; run_ms(600);             seg_report("post-reset respin");
+
     // ---- checks
     printf("ticks %ld, underruns motor=%ld head=%ld\n", ticks, underrun0, underrun1);
 wav_out:;

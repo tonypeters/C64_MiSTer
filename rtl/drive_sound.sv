@@ -104,7 +104,9 @@ always @(posedge clk) begin
 
 	if(load & ~load_d)  table_valid <= 0;
 	if(~load & load_d)  table_valid <= magic_ok;
-	if(reset) {wr_pending, table_valid} <= 0;
+	// core reset must NOT clear table_valid: the samples stay in DDR3 and
+	// nothing re-uploads them until the next core start
+	if(reset) wr_pending <= 0;
 end
 
 // ------------------------------------------------------------- voice state
