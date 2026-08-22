@@ -143,11 +143,14 @@ wire mot_act = (mstate != M_OFF);
 wire hd_act  = |rem_f[1] | |fill1;
 
 // half-track of the drive that stepped, sampled at the trigger pulse
-wire [7:0] strk = step[0] ? track0 : track1;
+wire [7:0] strk = (step[0] | bump[0]) ? track0 : track1;
 
 // head trigger latch
 reg       h_trig;
 reg [2:0] h_sel;
+reg [6:0] h_vol;             // VICE stepvol = 100 - half-track(+2) = 98 - strk
+
+localparam [6:0] MVOL = 7'd10;  // VICE motorvol: hum is a quiet background
 
 // -------------------------------------------------------------- fetch FSM
 
@@ -173,6 +176,10 @@ reg   [2:0] oseq = 0;
 reg signed [15:0] s0, s1;
 reg signed [16:0] sum;
 
+// one multiplier, time-shared: motor scaled in stage 3, head in stage 4.
+// VICE mixes sample*vol>>8; we use >>7 as make-up gain (globals differ).
+wire signed [23:0] vscale = $signed(fifo_q) * $signed({1'b0, (oseq == 3'd3) ? MVOL : h_vol});
+
 // 22050 Hz: PAL 31527954/1430 = 22047, NTSC 32727264/1484 = 22053
 wire [11:0] divmax = ntsc ? 12'd1483 : 12'd1429;
 
@@ -190,11 +197,11 @@ always @(posedge clk) begin
 		1: fifo_raddr <= {1'b0, rd_ptr[0]};
 		2: fifo_raddr <= {1'b1, rd_ptr[1]};
 		3: begin
-			s0 <= (mot_act && fill0 != 0) ? fifo_q : 16'd0;
+			s0 <= (mot_act && fill0 != 0) ? vscale[22:7] : 16'd0;
 			if(mot_act && fill0 != 0) rd_ptr[0] <= rd_ptr[0] + 1'd1;
 		end
 		4: begin
-			s1 <= (hd_act && fill1 != 0) ? fifo_q : 16'd0;
+			s1 <= (hd_act && fill1 != 0) ? vscale[22:7] : 16'd0;
 			if(hd_act && fill1 != 0) rd_ptr[1] <= rd_ptr[1] + 1'd1;
 		end
 		5: begin
@@ -310,11 +317,14 @@ always @(posedge clk) begin
 	endcase
 
 	// ---- head voice trigger, applied only between fetches.
-	// VICE semantics: a step always retriggers; a bump fires only into a
-	// silent head voice (it never interrupts a playing step or bump)
+	// VICE semantics, bump case first (the taps pulse step and bump
+	// together on a clamped step): a bump event fires only into a silent
+	// head voice and never also clicks; an ordinary step always retriggers.
 	if(snd_on) begin
-		if(|step)                            begin h_trig <= 1; h_sel <= (have6 && strk >= 34) ? S_STEP2 : S_STEP; end
-		else if(|bump && !hd_act && !h_trig) begin h_trig <= 1; h_sel <= S_BUMP; end
+		if(|bump) begin
+			if(!hd_act && !h_trig) begin h_trig <= 1; h_sel <= S_BUMP; h_vol <= 7'd98 - strk[6:0]; end
+		end
+		else if(|step) begin h_trig <= 1; h_sel <= (have6 && strk >= 34) ? S_STEP2 : S_STEP; h_vol <= 7'd98 - strk[6:0]; end
 	end
 
 	if(h_trig && (fstate == F_IDLE || !fv)) begin

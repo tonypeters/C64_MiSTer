@@ -121,7 +121,8 @@ int main(int argc, char** argv) {
     };
 
     auto do_step = [&](bool is_bump = false) {
-        if (is_bump) dut->bump = 1; else dut->step = 1;
+        // hardware taps pulse step and bump TOGETHER on a clamped step
+        if (is_bump) { dut->bump = 1; dut->step = 1; } else dut->step = 1;
         cycle();
         dut->step = 0; dut->bump = 0;
         head_grace_until = ticks + 2;
@@ -208,6 +209,27 @@ int main(int argc, char** argv) {
       printf("post-reset motor: %ld nonzero of 6000\n", nz2);
       if (nz2 < 1000) { fprintf(stderr, "FAIL: no audio after core reset\n"); return 1; } }
     dut->motor = 0; motor_grace_until = ticks + 2; run_ms(600);             seg_report("post-reset respin");
+
+    // ---- step volume vs track: outer clicks must be much louder than inner
+    {
+    auto burst_rms = [&](int trk) {
+        dut->track0 = dut->track1 = trk;
+        size_t from = wav.size();
+        for (int i = 0; i < 10; i++) { do_step(); run_ms(25); }
+        long long e = 0; long n = 0;
+        for (size_t i = from; i < wav.size(); i++) { e += (long long)wav[i]*wav[i]; n++; }
+        return n ? sqrt((double)e / n) : 0.0;
+    };
+    double rms_out = burst_rms(0), rms_in = burst_rms(84);
+    printf("step volume: track0 rms %.0f, track84 rms %.0f, ratio %.2f\n",
+           rms_out, rms_in, rms_in ? rms_out / rms_in : 0.0);
+    // volume (98/14 = 7x) stacked with the quieter inner-zone sample
+    // (stepping2 is ~half the amplitude of stepping) gives ~15x
+    if (rms_in <= 0 || rms_out / rms_in < 6.0 || rms_out / rms_in > 25.0) {
+        fprintf(stderr, "FAIL: step volume ratio out of range (expect ~15)\n");
+        return 1;
+    }
+    }
 
     // ---- checks
     printf("ticks %ld, underruns motor=%ld head=%ld\n", ticks, underrun0, underrun1);
