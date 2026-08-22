@@ -19,10 +19,12 @@
 // previous sound can land at the start of the new one. Inaudible.
 //
 // File format (drive_sounds.bin), all little-endian, 8-byte aligned:
-//   word 0 : bytes 0-3 magic "DSND", bytes 4-7 reserved
-//   word 1-5: per sample {byte 0-3: byte offset from file start,
+//   word 0 : bytes 0-3 magic "DSND", byte 4 sample count (0 or 5 = v1;
+//            6 adds the inner-zone step), bytes 5-7 reserved
+//   word 1-N: per sample {byte 0-3: byte offset from file start,
 //                         byte 4-7: length in samples}
-//             order: 0 spinup, 1 loop, 2 spindown, 3 step, 4 bump
+//             order: 0 spinup, 1 loop, 2 spindown, 3 step, 4 bump,
+//                    5 step2 (inner zone, half-track >= 34; VICE parity)
 //   data   : 16-bit signed mono, 22050 Hz, each sample 8-byte aligned
 //
 //-------------------------------------------------------------------------------
@@ -36,6 +38,8 @@ module drive_sound #(parameter SND_BASE = 29'h0608_0000)
 	input       [1:0] step,      // per-drive one-cycle pulses, already masked
 	input       [1:0] bump,
 	input       [1:0] motor,     // per-drive levels, already masked
+	input       [7:0] track0,    // per-drive half-track (existing OSD taps)
+	input       [7:0] track1,
 
 	input       [1:0] volume,    // 0 off, 1 quiet(>>2), 2 normal(>>1), 3 loud
 
@@ -69,9 +73,10 @@ reg  [63:0] wbuf;
 reg         wr_pending;
 reg  [28:0] wr_addr;
 reg         magic_ok;
+reg         have6;       // file carries the inner-zone step sample
 reg         table_valid = 0;
-reg  [18:0] tbl_off[5];  // 64-bit word offset from file start
-reg  [20:0] tbl_len[5];  // length in samples
+reg  [18:0] tbl_off[6];  // 64-bit word offset from file start
+reg  [20:0] tbl_len[6];  // length in samples
 
 assign load_wait = wr_pending;
 assign ddr_din   = wbuf;
@@ -99,8 +104,11 @@ always @(posedge clk) begin
 		wr_pending <= 0;
 		ddr_we     <= 0;
 		case(wr_addr - SND_BASE)
-			0:         magic_ok <= (wbuf[31:0] == MAGIC);
-			1,2,3,4,5: begin
+			0: begin
+				magic_ok <= (wbuf[31:0] == MAGIC);
+				have6    <= (wbuf[39:32] >= 8'd6);
+			end
+			1,2,3,4,5,6: begin
 				tbl_off[wr_addr - SND_BASE - 1] <= wbuf[21:3];
 				tbl_len[wr_addr - SND_BASE - 1] <= wbuf[52:32];
 			end
@@ -117,7 +125,7 @@ initial {wr_pending, ddr_we} = 0;
 // ------------------------------------------------------------- voice state
 
 localparam M_OFF = 2'd0, M_SPINUP = 2'd1, M_LOOP = 2'd2, M_SPINDOWN = 2'd3;
-localparam [2:0] S_SPINUP = 0, S_LOOP = 1, S_SPINDOWN = 2, S_STEP = 3, S_BUMP = 4;
+localparam [2:0] S_SPINUP = 0, S_LOOP = 1, S_SPINDOWN = 2, S_STEP = 3, S_BUMP = 4, S_STEP2 = 5;
 
 reg  [1:0] mstate = M_OFF;
 reg  [2:0] sel[2];       // current sample per voice
@@ -134,7 +142,10 @@ wire mtr_on  = |motor;
 wire mot_act = (mstate != M_OFF);
 wire hd_act  = |rem_f[1] | |fill1;
 
-// head trigger latch: bump wins over step
+// half-track of the drive that stepped, sampled at the trigger pulse
+wire [7:0] strk = step[0] ? track0 : track1;
+
+// head trigger latch
 reg       h_trig;
 reg [2:0] h_sel;
 
@@ -302,7 +313,7 @@ always @(posedge clk) begin
 	// VICE semantics: a step always retriggers; a bump fires only into a
 	// silent head voice (it never interrupts a playing step or bump)
 	if(snd_on) begin
-		if(|step)                            begin h_trig <= 1; h_sel <= S_STEP; end
+		if(|step)                            begin h_trig <= 1; h_sel <= (have6 && strk >= 34) ? S_STEP2 : S_STEP; end
 		else if(|bump && !hd_act && !h_trig) begin h_trig <= 1; h_sel <= S_BUMP; end
 	end
 

@@ -144,6 +144,8 @@ drive_sound drive_sound
 	.step(snd_step),
 	.bump(snd_bump),
 	.motor(snd_motor),
+	.track0(out_track[0]),
+	.track1(out_track[1]),
 	.volume(volume),
 
 	.load(load),

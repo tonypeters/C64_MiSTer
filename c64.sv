@@ -1218,6 +1218,8 @@ drive_sound drive_sound
 	.step(drv_snd_step),
 	.bump(drv_snd_bump),
 	.motor(drv_snd_motor),
+	.track0(drive_track[0]),
+	.track1(drive_track[1]),
 	.volume(status[98:97]),
 
 	.load(ioctl_download & load_snd),

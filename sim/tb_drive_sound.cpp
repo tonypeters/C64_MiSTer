@@ -129,7 +129,7 @@ int main(int argc, char** argv) {
     };
 
     // ---- reset
-    dut->reset = 1; dut->ntsc = 0; dut->volume = 3;
+    dut->reset = 1; dut->ntsc = 0; dut->volume = 3; dut->track0 = 20; dut->track1 = 20;
     dut->step = 0; dut->bump = 0; dut->motor = 0; motor_grace_until = ticks + 2;
     dut->load = 0; dut->load_wr = 0;
     for (int i = 0; i < 10; i++) cycle();

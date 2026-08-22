@@ -24,7 +24,7 @@ import wave
 
 RATE = 22050
 MAGIC = b"DSND"
-NAMES = ["spinup", "loop", "spindown", "step", "bump"]
+NAMES = ["spinup", "loop", "spindown", "step", "bump", "step2"]
 
 
 def read_wav(path):
@@ -56,7 +56,7 @@ def vice(path):
     import re
     src = open(path).read()
     out = []
-    for name in ["spinup", "hum", "spindown", "stepping", "bump"]:
+    for name in ["spinup", "hum", "spindown", "stepping", "bump", "stepping2"]:
         m = re.search(r"static const signed char %s\[\] = \{(.*?)\};" % name, src, re.S)
         if not m:
             sys.exit(f"{path}: array '{name}' not found")
@@ -83,6 +83,7 @@ def synth():
         tone(100, 40, 0.80, 12000, decay=3),  # spindown: dying chirp
         tone(1000, 1000, 0.004, 16000, decay=400),  # step: 4ms click
         tone(300, 300, 0.020, 20000, decay=100),    # bump: 20ms knock
+        tone(800, 800, 0.004, 14000, decay=400),    # step2: inner-zone click
     ]
 
 
@@ -99,11 +100,11 @@ def main():
     elif args.vice:
         samples = vice(args.vice)
     else:
-        if len(args.wavs) != 5:
-            sys.exit(f"need 5 WAV files in order: {' '.join(NAMES)}")
+        if len(args.wavs) not in (5, 6):
+            sys.exit(f"need 5 or 6 WAV files in order: {' '.join(NAMES)}")
         samples = [read_wav(p) for p in args.wavs]
 
-    header_len = 8 + 5 * 8
+    header_len = 8 + len(samples) * 8
     table = []
     blobs = []
     off = header_len
@@ -115,7 +116,7 @@ def main():
         off += len(blob) + pad
 
     with open(args.out, "wb") as f:
-        f.write(MAGIC + b"\0\0\0\0")
+        f.write(MAGIC + bytes([len(samples)]) + b"\0\0\0")
         for o, n in table:
             f.write(struct.pack("<II", o, n))
         for b in blobs:
