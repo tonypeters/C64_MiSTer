@@ -298,10 +298,12 @@ always @(posedge clk) begin
 		end
 	endcase
 
-	// ---- head voice trigger (bump wins), applied only between fetches
+	// ---- head voice trigger, applied only between fetches.
+	// VICE semantics: a step always retriggers; a bump fires only into a
+	// silent head voice (it never interrupts a playing step or bump)
 	if(snd_on) begin
-		if(|bump)      begin h_trig <= 1; h_sel <= S_BUMP; end
-		else if(|step && !(h_trig && h_sel == S_BUMP)) begin h_trig <= 1; h_sel <= S_STEP; end
+		if(|step)                            begin h_trig <= 1; h_sel <= S_STEP; end
+		else if(|bump && !hd_act && !h_trig) begin h_trig <= 1; h_sel <= S_BUMP; end
 	end
 
 	if(h_trig && (fstate == F_IDLE || !fv)) begin
