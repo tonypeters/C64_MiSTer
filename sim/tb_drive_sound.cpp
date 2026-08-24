@@ -196,6 +196,20 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 50;  i++) { do_step(); run_ms(10);  }  seg_report("steps @100Hz");
     for (int i = 0; i < 150; i++) { do_step(); run_us(3333); } seg_report("steps @300Hz (SingSong)");
     for (int i = 0; i < 5;   i++) { do_step(true); run_ms(100); } seg_report("bumps @10Hz");
+
+    // drive-music regression (Sing Song Serenade): hammering the track-0
+    // stop at note rate must give a sustained pitched buzz via per-hit
+    // retrigger, not one 119ms knock followed by silence
+    {
+        size_t from = wav.size();
+        for (int i = 0; i < 120; i++) { do_step(true); run_us(3333); }
+        long long e = 0; long n = 0;
+        for (size_t i = from; i < wav.size(); i++) { e += (long long)wav[i]*wav[i]; n++; }
+        double rms = n ? sqrt((double)e / n) : 0;
+        printf("bump hammer @300Hz: rms %.0f over %.2fs\n", rms, n / 22050.0);
+        if (rms < 2000) { fprintf(stderr, "FAIL: bump hammering not retriggering (drive music broken)\n"); return 1; }
+    }
+    seg_report("bump hammer");
     dut->motor = 0; motor_grace_until = ticks + 2; run_ms(400);             seg_report("spindown (partial)");
     dut->motor = 1; motor_grace_until = ticks + 2; run_ms(500);             seg_report("re-spin during spindown");
     dut->motor = 0; motor_grace_until = ticks + 2; run_ms(1200);            seg_report("spindown + silence");

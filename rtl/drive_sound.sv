@@ -317,13 +317,13 @@ always @(posedge clk) begin
 	endcase
 
 	// ---- head voice trigger, applied only between fetches.
-	// VICE semantics, bump case first (the taps pulse step and bump
-	// together on a clamped step): a bump event fires only into a silent
-	// head voice and never also clicks; an ordinary step always retriggers.
+	// Bump case first (the taps pulse step and bump together on a clamped
+	// step), and every bump RETRIGGERS: drive-music programs play their
+	// tune by hammering the head against the track-0 stop at note rate,
+	// and only a per-hit restart reproduces the pitch. (VICE suppresses
+	// repeats instead and turns such programs into single knocks.)
 	if(snd_on) begin
-		if(|bump) begin
-			if(!hd_act && !h_trig) begin h_trig <= 1; h_sel <= S_BUMP; h_vol <= 7'd98 - strk[6:0]; end
-		end
+		if(|bump)      begin h_trig <= 1; h_sel <= S_BUMP; h_vol <= 7'd98 - strk[6:0]; end
 		else if(|step) begin h_trig <= 1; h_sel <= (have6 && strk >= 34) ? S_STEP2 : S_STEP; h_vol <= 7'd98 - strk[6:0]; end
 	end
 
